@@ -420,10 +420,12 @@ async function connectToWhatsApp() {
                     if (text.includes(':') && text.includes('kg')) {
                         try {
                             const items = text.split(',');
+                            const stockParsed = [];
                             items.forEach(item => {
                                 const [producto, cantidad] = item.split(':');
                                 if (producto && cantidad) {
                                     stockDisponible[producto.trim()] = cantidad.trim();
+                                    stockParsed.push(`${producto.trim()}: ${cantidad.trim()}`);
                                 }
                             });
                             mensajesConfiguracion.set(messageId, {
@@ -432,8 +434,13 @@ async function connectToWhatsApp() {
                                 contexto: `STOCK: ${text}`
                             });
                             console.log(`📦 Stock actualizado desde grupo: ${text}`);
+
+                            // Responder en el grupo confirmando lo entendido
+                            const respuestaStock = `✅ Stock actualizado:\n${stockParsed.join('\n')}`;
+                            await sock.sendMessage(from, { text: respuestaStock });
                         } catch (err) {
                             console.error('Error procesando stock:', err.message);
+                            await sock.sendMessage(from, { text: '❌ Error procesando stock' });
                         }
                     } else {
                         // Procesar como restricción
@@ -446,6 +453,10 @@ async function connectToWhatsApp() {
                                 contexto: nuevoContexto
                             });
                             console.log(`📝 Contexto actualizado desde grupo: ${nuevoContexto}`);
+
+                            // Responder en el grupo confirmando la restricción entendida
+                            const respuestaRestriccion = `✅ Restricción activa:\n${nuevoContexto}`;
+                            await sock.sendMessage(from, { text: respuestaRestriccion });
                         }
                     }
                 }
