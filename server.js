@@ -43,6 +43,11 @@ let estadoAtencion = "abierto"; // "abierto" o "cerrado"
 let mensajeEstadoCerrado = ""; // Mensaje personalizado si está cerrado
 
 // ============================================================
+// CONTEXTO DEL DUEÑO — restricciones e instrucciones del día
+// ============================================================
+let contextoDueño = ""; // Se actualiza con IA a partir de mensajes del dueño
+
+// ============================================================
 // PEDIDOS DEL DÍA — se acumulan hasta el envío de las 18hs
 // ============================================================
 let pedidosDelDia = []; // Array de objetos de pedido confirmado
@@ -121,6 +126,43 @@ Chorizo seco: $2.800/u
 Salchicha parrillera: $1.000/u
 Salame: $3.200/100g
 `;
+
+// ============================================================
+// FUNCIÓN: procesar mensaje del dueño con IA para extraer restricciones
+// ============================================================
+async function procesarContextoDueño(mensaje) {
+    try {
+        const res = await groq.chat.completions.create({
+            model: "llama-3.3-70b-versatile",
+            messages: [
+                {
+                    role: "system",
+                    content: `Sos un analizador de instrucciones de un vendedor de carnes.
+Lee el mensaje del vendedor y extrae TODAS las restricciones, limitaciones o instrucciones especiales para hoy.
+Responde en formato texto claro y conciso. Por ejemplo:
+- Si dice "hoy no se hacen pedidos a domicilios", responde: "RESTRICCIÓN: Solo retiro en local, NO envío a domicilio"
+- Si dice "no hay Lomo", responde: "PRODUCTOS NO DISPONIBLES: Lomo"
+- Si dice algo especial, resúmelo claramente
+
+Si el mensaje es solo un comando técnico (!stock, !abierto, !cerrado) o no contiene restricciones, responde: "SIN RESTRICCIONES"`
+                },
+                {
+                    role: "user",
+                    content: `Mensaje del vendedor: "${mensaje}"`
+                }
+            ]
+        });
+
+        const resultado = res.choices[0].message.content.trim();
+        if (!resultado.includes("SIN RESTRICCIONES")) {
+            return resultado;
+        }
+        return "";
+    } catch (err) {
+        console.error('❌ Error procesando contexto del dueño:', err.message);
+        return "";
+    }
+}
 
 // ============================================================
 // FUNCIÓN: parsear el pedido confirmado desde el historial
@@ -333,8 +375,22 @@ async function connectToWhatsApp() {
             if (lowText === '!abierto') {
                 estadoAtencion = "abierto";
                 mensajeEstadoCerrado = "";
+                contextoDueño = ""; // Limpiar restricciones al abrir
                 await sock.sendMessage(from, { text: `✅ Atención ABIERTA. Se aceptan pedidos nuevamente.` });
                 return;
+            }
+
+            // Procesar cualquier otro mensaje del dueño para extraer restricciones
+            if (!lowText.startsWith('!') &&
+                lowText !== '!resumen' &&
+                lowText !== '!stock' &&
+                lowText !== '!abierto' &&
+                lowText !== '!cerrado') {
+                const nuevoContexto = await procesarContextoDueño(text);
+                if (nuevoContexto) {
+                    contextoDueño += (contextoDueño ? '\n' : '') + nuevoContexto;
+                    console.log(`📝 Contexto actualizado: ${nuevoContexto}`);
+                }
             }
         }
 
@@ -445,7 +501,10 @@ ${Object.entries(stockDisponible).length > 0
 Lunes a viernes: 7:00–13:00 y 17:00–20:00. Sábados: 7:00–13:00.
 Pedidos por WhatsApp hasta 1 hora antes del cierre.
 
-== REGLAS ==
+${contextoDueño ? `== RESTRICCIONES/INSTRUCCIONES HOY ==
+${contextoDueño}
+
+` : ''}== REGLAS ==
 - No inventés precios fuera de la lista.
 - Confirmá siempre el pedido antes de cerrar.
 - Firmá cada respuesta con: *— Carnicería SUPREMO CORTE*`
