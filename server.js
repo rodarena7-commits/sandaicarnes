@@ -32,6 +32,12 @@ const groq = new OpenAI({
 const NUMERO_DUENO = "541123484720@s.whatsapp.net"; // +5491123484720
 
 // ============================================================
+// GRUPO DE CONFIGURACIÓN — donde el dueño escribe restricciones
+// ============================================================
+const NOMBRE_GRUPO_CONFIG = "configuracion"; // Nombre del grupo privado
+let grupoConfigId = null; // Se detecta automáticamente
+
+// ============================================================
 // STOCK DISPONIBLE — se actualiza desde un chat consigo mismo
 // ============================================================
 let stockDisponible = {};
@@ -351,8 +357,6 @@ async function connectToWhatsApp() {
         if (!msg.message) return;
 
         const from = msg.key.remoteJid;
-        if (from.endsWith('@g.us')) return;
-
         const text = msg.message.conversation ||
                      msg.message.extendedTextMessage?.text ||
                      msg.message.imageMessage?.caption || "";
@@ -360,6 +364,26 @@ async function connectToWhatsApp() {
         if (!text) return;
 
         const lowText = text.toLowerCase().trim();
+
+        // Procesar mensajes de GRUPO DE CONFIGURACIÓN
+        if (from.endsWith('@g.us')) {
+            // Intentar detectar el grupo "configuracion"
+            const groupMetadata = await sock.groupMetadata(from).catch(() => null);
+            if (groupMetadata && groupMetadata.subject.toLowerCase().includes('configuracion')) {
+                grupoConfigId = from;
+                console.log(`📋 Leyendo configuración del grupo: ${groupMetadata.subject}`);
+
+                // Procesar mensaje del grupo para extraer restricciones
+                if (!msg.key.fromMe) {
+                    const nuevoContexto = await procesarContextoDueño(text);
+                    if (nuevoContexto) {
+                        contextoDueño = nuevoContexto;
+                        console.log(`📝 Contexto actualizado desde grupo: ${nuevoContexto}`);
+                    }
+                }
+            }
+            return;
+        }
 
         // Procesar comandos del dueño (incluso si fromMe es true)
         if (from === NUMERO_DUENO) {
