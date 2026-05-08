@@ -52,6 +52,8 @@ let mensajeEstadoCerrado = ""; // Mensaje personalizado si está cerrado
 // CONTEXTO DEL DUEÑO — restricciones e instrucciones del día
 // ============================================================
 let contextoDueño = ""; // Se actualiza con IA a partir de mensajes del dueño
+const mensajesConfiguracion = new Map(); // messageId → { tipo, contenido, contexto }
+// tipo: "restriccion" o "stock"
 
 // ============================================================
 // PEDIDOS DEL DÍA — se acumulan hasta el envío de las 18hs
@@ -350,6 +352,43 @@ async function connectToWhatsApp() {
         }
     });
 
+    // Detectar cuando se eliminan mensajes del grupo de configuración
+    sock.ev.on('messages.delete', (jids) => {
+        if (!jids) return;
+
+        jids.forEach((jid) => {
+            if (jid.remoteJid && jid.remoteJid.endsWith('@g.us')) {
+                const messageId = jid.id;
+                const config = mensajesConfiguracion.get(messageId);
+
+                if (config) {
+                    console.log(`🗑️ Mensaje eliminado del grupo: ${config.contenido}`);
+                    mensajesConfiguracion.delete(messageId);
+
+                    // Reconstruir el contexto desde los mensajes restantes
+                    contextoDueño = "";
+                    stockDisponible = {};
+
+                    mensajesConfiguracion.forEach((cfg) => {
+                        if (cfg.tipo === 'restriccion') {
+                            contextoDueño = cfg.contexto; // El último es lo que cuenta
+                        } else if (cfg.tipo === 'stock') {
+                            const items = cfg.contenido.split(',');
+                            items.forEach(item => {
+                                const [producto, cantidad] = item.split(':');
+                                if (producto && cantidad) {
+                                    stockDisponible[producto.trim()] = cantidad.trim();
+                                }
+                            });
+                        }
+                    });
+
+                    console.log(`📝 Contexto actualizado tras eliminación`);
+                }
+            }
+        });
+    });
+
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         const msg = messages[0];
@@ -373,12 +412,41 @@ async function connectToWhatsApp() {
                 grupoConfigId = from;
                 console.log(`📋 Leyendo configuración del grupo: ${groupMetadata.subject}`);
 
-                // Procesar mensaje del grupo para extraer restricciones
+                // Procesar mensaje del grupo para extraer restricciones o stock
                 if (!msg.key.fromMe) {
-                    const nuevoContexto = await procesarContextoDueño(text);
-                    if (nuevoContexto) {
-                        contextoDueño = nuevoContexto;
-                        console.log(`📝 Contexto actualizado desde grupo: ${nuevoContexto}`);
+                    const messageId = msg.key.id;
+
+                    // Detectar si es un comando de stock (formato: "Asado: 50kg, Lomo: 30kg")
+                    if (text.includes(':') && text.includes('kg')) {
+                        try {
+                            const items = text.split(',');
+                            items.forEach(item => {
+                                const [producto, cantidad] = item.split(':');
+                                if (producto && cantidad) {
+                                    stockDisponible[producto.trim()] = cantidad.trim();
+                                }
+                            });
+                            mensajesConfiguracion.set(messageId, {
+                                tipo: 'stock',
+                                contenido: text,
+                                contexto: `STOCK: ${text}`
+                            });
+                            console.log(`📦 Stock actualizado desde grupo: ${text}`);
+                        } catch (err) {
+                            console.error('Error procesando stock:', err.message);
+                        }
+                    } else {
+                        // Procesar como restricción
+                        const nuevoContexto = await procesarContextoDueño(text);
+                        if (nuevoContexto) {
+                            contextoDueño = nuevoContexto;
+                            mensajesConfiguracion.set(messageId, {
+                                tipo: 'restriccion',
+                                contenido: text,
+                                contexto: nuevoContexto
+                            });
+                            console.log(`📝 Contexto actualizado desde grupo: ${nuevoContexto}`);
+                        }
                     }
                 }
             }
