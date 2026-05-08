@@ -416,6 +416,36 @@ async function connectToWhatsApp() {
                 if (!msg.key.fromMe) {
                     const messageId = msg.key.id;
 
+                    // Permitir comandos administrativos desde el grupo
+                    if (lowText === '!cerrado') {
+                        estadoAtencion = "cerrado";
+                        mensajeEstadoCerrado = "Hoy no estamos tomando pedidos.";
+                        await sock.sendMessage(from, { text: `🔴 Atención CERRADA por orden del grupo.` });
+                        return;
+                    }
+
+                    if (lowText === '!abierto') {
+                        estadoAtencion = "abierto";
+                        mensajeEstadoCerrado = "";
+                        contextoDueño = "";
+                        await sock.sendMessage(from, { text: `✅ Atención ABIERTA. Se aceptan pedidos.` });
+                        return;
+                    }
+
+                    if (lowText === '!resumen') {
+                        const resumen = formatearResumenDiario(pedidosDelDia);
+                        await sock.sendMessage(from, { text: resumen });
+                        return;
+                    }
+
+                    if (lowText === '!stock') {
+                        const stockText = Object.entries(stockDisponible).length > 0
+                            ? Object.entries(stockDisponible).map(([k, v]) => `${k}: ${v}`).join('\n')
+                            : 'Sin stock registrado';
+                        await sock.sendMessage(from, { text: `📦 Stock Actual:\n${stockText}` });
+                        return;
+                    }
+
                     // Detectar si es un comando de stock (formato: "Asado: 50kg, Lomo: 30kg")
                     if (text.includes(':') && text.includes('kg')) {
                         try {
