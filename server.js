@@ -388,7 +388,7 @@ async function connectToWhatsApp() {
                 lowText !== '!cerrado') {
                 const nuevoContexto = await procesarContextoDueño(text);
                 if (nuevoContexto) {
-                    contextoDueño += (contextoDueño ? '\n' : '') + nuevoContexto;
+                    contextoDueño = nuevoContexto; // Reemplazar (no acumular) - el último mensaje es lo que cuenta
                     console.log(`📝 Contexto actualizado: ${nuevoContexto}`);
                 }
             }
@@ -507,7 +507,7 @@ ${contextoDueño}
 ` : ''}== REGLAS ==
 - No inventés precios fuera de la lista.
 - Confirmá siempre el pedido antes de cerrar.
-- Firmá cada respuesta con: *— Carnicería SUPREMO CORTE*`
+- NO firmes con nada, solo responde naturalmente`
                     },
                     ...historial
                 ]
@@ -530,17 +530,18 @@ ${contextoDueño}
                 // Limpiar conversación de este cliente para futuros pedidos
                 conversaciones.delete(from);
 
-                // Enviar mensaje sin la etiqueta técnica
+                // Enviar mensaje sin la etiqueta técnica + firma
                 const mensajeLimpio = aiResponse.replace('[PEDIDO_CONFIRMADO]', '').trim();
-                await sock.sendMessage(from, { text: mensajeLimpio });
+                const mensajeConFirma = `${mensajeLimpio}\n\n*— Carnicería SUPREMO CORTE*`;
+                await sock.sendMessage(from, { text: mensajeConFirma });
             } else {
                 await sock.sendMessage(from, { text: aiResponse });
             }
 
         } catch (err) {
             console.error('❌ Error Groq:', err.message);
-            await sock.sendMessage(from, { 
-                text: 'Disculpe, estamos experimentando inconvenientes técnicos. Por favor intente nuevamente en unos minutos.\n\n*— Carnicería SUPREMO CORTE*' 
+            await sock.sendMessage(from, {
+                text: 'Disculpe, estamos experimentando inconvenientes técnicos. Por favor intente nuevamente en unos minutos.'
             });
         }
     });
