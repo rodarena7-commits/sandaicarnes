@@ -37,6 +37,12 @@ const NUMERO_DUENO = "541123484720@s.whatsapp.net"; // +5491123484720
 let stockDisponible = {};
 
 // ============================================================
+// ESTADO DE ATENCIÓN — si se toman pedidos hoy o no
+// ============================================================
+let estadoAtencion = "abierto"; // "abierto" o "cerrado"
+let mensajeEstadoCerrado = ""; // Mensaje personalizado si está cerrado
+
+// ============================================================
 // PEDIDOS DEL DÍA — se acumulan hasta el envío de las 18hs
 // ============================================================
 let pedidosDelDia = []; // Array de objetos de pedido confirmado
@@ -299,19 +305,41 @@ async function connectToWhatsApp() {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         const msg = messages[0];
-        
-        if (!msg.message || msg.key.fromMe) return;
+
+        if (!msg.message) return;
 
         const from = msg.key.remoteJid;
         if (from.endsWith('@g.us')) return;
 
-        const text = msg.message.conversation || 
-                     msg.message.extendedTextMessage?.text || 
+        const text = msg.message.conversation ||
+                     msg.message.extendedTextMessage?.text ||
                      msg.message.imageMessage?.caption || "";
 
         if (!text) return;
 
         const lowText = text.toLowerCase().trim();
+
+        // Procesar comandos del dueño (incluso si fromMe es true)
+        if (from === NUMERO_DUENO) {
+            // Cambiar estado a CERRADO
+            if (lowText.includes('no tomamos pedidos') || lowText === '!cerrado') {
+                estadoAtencion = "cerrado";
+                mensajeEstadoCerrado = text.includes('!cerrado') ? "Hoy no estamos tomando pedidos." : text;
+                await sock.sendMessage(from, { text: `🔴 Atención CERRADA. Los clientes recibirán: "${mensajeEstadoCerrado}"` });
+                return;
+            }
+
+            // Cambiar estado a ABIERTO
+            if (lowText === '!abierto') {
+                estadoAtencion = "abierto";
+                mensajeEstadoCerrado = "";
+                await sock.sendMessage(from, { text: `✅ Atención ABIERTA. Se aceptan pedidos nuevamente.` });
+                return;
+            }
+        }
+
+        // Ignorar mensajes propios (excepto los del dueño que ya procesamos)
+        if (msg.key.fromMe) return;
 
         if (lowText === '!ping') {
             await sock.sendMessage(from, { text: '✅ Carnicería SUPREMO CORTE online.' });
@@ -351,6 +379,13 @@ async function connectToWhatsApp() {
                 ? Object.entries(stockDisponible).map(([k, v]) => `${k}: ${v}`).join('\n')
                 : 'Sin stock registrado';
             await sock.sendMessage(from, { text: `📦 Stock Actual:\n${stockText}` });
+            return;
+        }
+
+        // Verificar si estamos atendiendo
+        if (estadoAtencion === "cerrado") {
+            const mensajeCierre = mensajeEstadoCerrado || "Disculpe, hoy no estamos tomando pedidos. Volveremos a atender próximamente.\n\n*— Carnicería SUPREMO CORTE*";
+            await sock.sendMessage(from, { text: mensajeCierre });
             return;
         }
 
